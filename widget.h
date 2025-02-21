@@ -35,6 +35,8 @@
 #include <QFileDialog>
 #include <QGuiApplication>
 #include <QDateTime>
+#include <QUrl>
+#include <QDesktopServices>
 
 class Widget : public QWidget
 {
@@ -60,7 +62,7 @@ private slots:
 private:
     void updateTableRows(int rows);
     void setupTableWidgetRow(int row, const QList<QSerialPortInfo>& serialPortInfos);
-    void setColumnsNonEditable(int row);   
+    void setColumnsNonEditable(int row);
     void createFirstRowLayout(QVBoxLayout *mainLayout);    // 创建第一行布局（全选框和数字输入框）
     void createSerialPortTable(QVBoxLayout *mainLayout);// 创建串口列表
     void createSecondRowLayout(QVBoxLayout *mainLayout);    // 创建第二行布局（实时数据发送label和lineEdit）

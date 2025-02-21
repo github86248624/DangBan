@@ -730,6 +730,11 @@ void Widget::onCaptureScreenButtonClicked()
     }else{
         QMessageBox::warning(this , u8"截屏失败" , u8"无法保留截屏文件");
     }
+    int result =QMessageBox::question(nullptr , u8"是否打开日志文件保存位置" ,  QString(u8"是否打开目录：%1？").arg(QCoreApplication::applicationDirPath()),
+                          QMessageBox::Yes | QMessageBox::No);
+    if(result == QMessageBox::Yes){
+        QDesktopServices::openUrl(QUrl::fromLocalFile(QCoreApplication::applicationDirPath())) ;
+    }
 }
 
 // 更新表格行数的函数
