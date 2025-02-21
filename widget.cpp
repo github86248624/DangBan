@@ -73,9 +73,9 @@ void Widget::createFirstRowLayout(QVBoxLayout *mainLayout) {
     connect(rowCountSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), this, &Widget::onRowCountChanged);
 
 
-        QPushButton *captureScreenButton  = new QPushButton(u8"截取当前窗口",this);
-        firstRowLayout->addWidget(captureScreenButton );
-        connect(captureScreenButton ,&QPushButton::clicked,this,&Widget::onCaptureScreenButtonClicked);
+    QPushButton *captureScreenButton  = new QPushButton(u8"截取当前窗口",this);
+    firstRowLayout->addWidget(captureScreenButton );
+    connect(captureScreenButton ,&QPushButton::clicked,this,&Widget::onCaptureScreenButtonClicked);
 
     //创建重置窗口大小按钮
     QPushButton *resetWindowSizeButton = new QPushButton(u8"重置窗口大小", this);
@@ -370,32 +370,42 @@ void Widget::setWindowSize()
 //发送灯亮度命令
 void Widget::sendLightBrightnessCommands()
 {
-    for(QList<QSerialPort*>::iterator it = serialPorts.begin(); it != serialPorts.end(); ++it){
-        QSerialPort* port = *it;
-        int row = portToRowMap.value(port , -1);
-        if(row != -1)
-        {
-            QSpinBox * lightBrightnessSpinBox = qobject_cast< QSpinBox* >(serialPortTable->cellWidget(row,6));
-            if(lightBrightnessSpinBox)
+    QFile logFile("serialPortLog.txt");
+    if (logFile.open(QIODevice::Append | QIODevice::Text)){
+        QTextStream out(&logFile);
+        for(QList<QSerialPort*>::iterator it = serialPorts.begin(); it != serialPorts.end(); ++it){
+            QSerialPort* port = *it;
+            int row = portToRowMap.value(port , -1);
+            if(row != -1)
             {
-                int brightness = lightBrightnessSpinBox->value();
-                QByteArray setLightness = generateCommand(0x03 , brightness , 0x00);
-                if(port->isOpen())
+                QSpinBox * lightBrightnessSpinBox = qobject_cast< QSpinBox* >(serialPortTable->cellWidget(row,6));
+                if(lightBrightnessSpinBox)
                 {
-                    if(port->write(setLightness) == -1)
+                    int brightness = lightBrightnessSpinBox->value();
+                    QByteArray setLightness = generateCommand(0x03 , brightness , 0x00);
+                    if(port->isOpen())
                     {
-                        qDebug() <<"Failed to write to serial port:" << port->portName();
-                    }else
-                    {
-                        qDebug() << "Serial port:" << port->portName() << "Brightness value:" << brightness;
-                        QString message = setLightness.toHex();
-                        QString spacedHexString = formatHexString(message);
-                        lineEdit->setText(spacedHexString);
-                        qDebug() <<  "Command sent to" << port->portName() << spacedHexString;
+                        if(port->write(setLightness) == -1)
+                        {
+                            qDebug() <<"Failed to write to serial port:" << port->portName();
+                        }else
+                        {
+                            // 将发送的数据写入日志文件
+                            out << QDateTime::currentDateTime().toString(u8"yyyy年MM月dd HH:mm:ss") << "\n"
+                                << " Sent to " << port->portName() << ": " << "\n" << formatHexString(setLightness.toHex().toUpper()) << "\n" << "\n";
+                            qDebug() << "Serial port:" << port->portName() << "Brightness value:" << brightness;
+                            QString message = setLightness.toHex();
+                            QString spacedHexString = formatHexString(message);
+                            lineEdit->setText(spacedHexString);
+                            qDebug() <<  "Command sent to" << port->portName() << spacedHexString;
+                        }
                     }
                 }
             }
         }
+        logFile.close();
+    }else {
+        qDebug () << "Failed to open log file.";
     }
 }
 
@@ -486,130 +496,146 @@ void Widget::parseReceivedData(const QByteArray &data, QSerialPort *serialPort, 
     }
 }
 
-    //全选设备
-    void Widget::onSelectAllCheckBoxChanged(int state)
-    {
-        for (int i = 0; i < serialPortTable->rowCount(); ++i) {
-            QCheckBox *checkBox = qobject_cast<QCheckBox*>(serialPortTable->cellWidget(i, 0));
-            if (checkBox)
-            {
-                checkBox->setChecked(state == Qt::Checked);
-            }
+//全选设备
+void Widget::onSelectAllCheckBoxChanged(int state)
+{
+    for (int i = 0; i < serialPortTable->rowCount(); ++i) {
+        QCheckBox *checkBox = qobject_cast<QCheckBox*>(serialPortTable->cellWidget(i, 0));
+        if (checkBox)
+        {
+            checkBox->setChecked(state == Qt::Checked);
         }
     }
+}
 
-    //设备数量改变，表格该表
-    void Widget::onRowCountChanged(int value)
-    {
-        updateTableRows(value);
-    }
+//设备数量改变，表格该表
+void Widget::onRowCountChanged(int value)
+{
+    updateTableRows(value);
+}
 
-    //开关串口
-    void Widget::onOpenCloseButtonClicked()
+//开关串口
+void Widget::onOpenCloseButtonClicked()
+{
+    if(isSerialPortOpen)
     {
-        if(isSerialPortOpen)
-        {
-            closeAllSerialPort();
-            portToRowMap.clear();
-        }else
-        {
-            serialPorts.clear();
-            for (int row = 0; row < serialPortTable->rowCount(); ++row) {
-                QCheckBox *checkBox = qobject_cast<QCheckBox* >(serialPortTable->cellWidget(row,0));
-                if(checkBox && checkBox->isChecked())
+        closeAllSerialPort();
+        portToRowMap.clear();
+    }else
+    {
+        serialPorts.clear();
+        for (int row = 0; row < serialPortTable->rowCount(); ++row) {
+            QCheckBox *checkBox = qobject_cast<QCheckBox* >(serialPortTable->cellWidget(row,0));
+            if(checkBox && checkBox->isChecked())
+            {
+                QString portName;
+                qint32 baudRate;
+                QSerialPort::DataBits dataBits;
+                QSerialPort::StopBits stopBits;
+                QSerialPort::Parity parity;
+
+                if(getSerialPortConfig(row,portName,baudRate,dataBits,stopBits,parity))
                 {
-                    QString portName;
-                    qint32 baudRate;
-                    QSerialPort::DataBits dataBits;
-                    QSerialPort::StopBits stopBits;
-                    QSerialPort::Parity parity;
+                    QSerialPort* serialPort = new QSerialPort(this);
+                    serialPort->setPortName(portName);
+                    serialPort->setBaudRate(baudRate);
+                    serialPort->setDataBits(dataBits);
+                    serialPort->setParity(parity);
 
-                    if(getSerialPortConfig(row,portName,baudRate,dataBits,stopBits,parity))
+                    if(serialPort->open(QIODevice::ReadWrite))
                     {
-                        QSerialPort* serialPort = new QSerialPort(this);
-                        serialPort->setPortName(portName);
-                        serialPort->setBaudRate(baudRate);
-                        serialPort->setDataBits(dataBits);
-                        serialPort->setParity(parity);
+                        isSerialPortOpen = true;
+                        openCloseButton->setText(u8"关闭所有串口");
+                        startPauseButton->setEnabled(true);
+                        serialPorts.append(serialPort);
+                        connect(serialPort, &QSerialPort::readyRead, this, &Widget::readSerialPortData);
 
-                        if(serialPort->open(QIODevice::ReadWrite))
-                        {
-                            isSerialPortOpen = true;
-                            openCloseButton->setText(u8"关闭所有串口");
-                            startPauseButton->setEnabled(true);
-                            serialPorts.append(serialPort);
-                            connect(serialPort, &QSerialPort::readyRead, this, &Widget::readSerialPortData);
-
-                            portToRowMap.insert(serialPort , row);
-                            QString str = "serialPort" + portName;
-                            qDebug() << str << u8"isOpend";
-                        }
-                        else
-                        {
-                            QMessageBox::warning(this, u8"串口打开失败" ,  u8"无法代开串口" +portName);
-                        }
+                        portToRowMap.insert(serialPort , row);
+                        QString str = "serialPort" + portName;
+                        qDebug() << str << u8"isOpend";
+                    }
+                    else
+                    {
+                        QMessageBox::warning(this, u8"串口打开失败" ,  u8"无法代开串口" +portName);
                     }
                 }
             }
-            // 如果所有选中串口都打开失败，重置isSerialPortOpen
-            if (serialPorts.isEmpty())
-            {
-                isSerialPortOpen = false;
-                openCloseButton->setText(u8"打开串口");
-                startPauseButton->setEnabled(false);
-            }
         }
-        serialPortTable->update();
-    }
-
-    //开始暂停
-    void Widget::onStartPauseButtonClicked()
-    {
-        if( isRunning)
+        // 如果所有选中串口都打开失败，重置isSerialPortOpen
+        if (serialPorts.isEmpty())
         {
-            timer.stop();
-            startPauseButton->setText(u8"开始运行");
-            isRunning = false;
-        }
-        else
-        {
-            sendLightBrightnessCommands();
-            timer.start();
-            startPauseButton->setText(u8"停止运行");
-            isRunning = true;
+            isSerialPortOpen = false;
+            openCloseButton->setText(u8"打开串口");
+            startPauseButton->setEnabled(false);
         }
     }
+    serialPortTable->update();
+}
 
-    void Widget::onTimerTimeout()
+//开始暂停
+void Widget::onStartPauseButtonClicked()
+{
+    if( isRunning)
     {
-        QByteArray command;
-        if(commandIndex == 0)
-        {
-            command = generateCommand(0x01, 0x01, 0x00);
-            commandIndex = 1;
-        }
-        else
-        {
-            command = generateCommand(0x02, 0x01, 0x00);
-            commandIndex = 0;
-        }
+        timer.stop();
+        startPauseButton->setText(u8"开始运行");
+        isRunning = false;
+    }
+    else
+    {
+        sendLightBrightnessCommands();
+        timer.start();
+        startPauseButton->setText(u8"停止运行");
+        isRunning = true;
+    }
+}
 
-        for(QSerialPort* serialPort : serialPorts){
-            if(serialPort->isOpen())
-            {
+void Widget::onTimerTimeout()
+{
+    QByteArray command;
+    if(commandIndex == 0)
+    {
+        command = generateCommand(0x01, 0x01, 0x00);
+        commandIndex = 1;
+    }
+    else
+    {
+        command = generateCommand(0x02, 0x01, 0x00);
+        commandIndex = 0;
+    }
+
+    QFile logFile("serialPortLog.txt");
+    if (logFile.open(QIODevice::Append | QIODevice::Text)) {
+        QTextStream out(&logFile);
+
+        for(QSerialPort* serialPort : serialPorts) {
+            if(serialPort->isOpen()) {
                 serialPort->write(command);
-                QString message =command.toHex();
-                QString spacedHexString;
-                spacedHexString = formatHexString(message);
-                qDebug() << "Command sent to" << serialPort->portName() << ":" << formatHexString( command.toHex());
+                QString message = command.toHex();
+                QString spacedHexString = formatHexString(message);
+
+                // 将发送的信息写入日志文件
+                out << QDateTime::currentDateTime().toString(u8"yyyy年MM月dd日 HH:mm:ss") << "\n"
+                    << " Command sent to " << serialPort->portName()
+                    << ": " << spacedHexString << "\n";
+
+                qDebug() << "Command sent to" << serialPort->portName() << ":" << spacedHexString;
                 lineEdit->setText(spacedHexString);
             }
         }
+        logFile.close();
+    } else {
+        qDebug() << "Failed to open log file.";
     }
+}
 
-    //读取串口信息
-    void Widget::readSerialPortData()
-    {
+//读取串口信息
+void Widget::readSerialPortData()
+{
+    QFile logFile("serialPortLog.txt");
+    if(logFile.open(QIODevice::Append | QIODevice::Text)){
+        QTextStream out(&logFile);
+
         for(QSerialPort* serialPort:serialPorts){
             if(serialPort->isOpen())
             {
@@ -619,8 +645,13 @@ void Widget::parseReceivedData(const QByteArray &data, QSerialPort *serialPort, 
                     serialPortReceivedDataMap[serialPort] += receivedData;
                     QByteArray cachedData = serialPortReceivedDataMap[serialPort];
 
+
                     while (cachedData.length() >= 13) {
                         QByteArray dataToProcess = cachedData.left(13);
+
+                        // 将接收到的数据写入日志文件
+                        out << QDateTime::currentDateTime().toString(u8"yyyy年MM月dd HH:mm:ss") << "\n"
+                            << " Received from " << serialPort->portName() << ": " << "\n" << formatHexString( dataToProcess.toHex() .toUpper())<< "\n" << "\n";
 
                         qDebug() << "receivedData : " << dataToProcess.length();
                         qDebug() << "Received data from" << serialPort->portName() << ":" << dataToProcess;
@@ -628,44 +659,45 @@ void Widget::parseReceivedData(const QByteArray &data, QSerialPort *serialPort, 
 
                         cachedData = cachedData.mid(13);
                     }
-                }/*else
-                {
-                    qDebug() <<"Read data from" << serialPort->portName() << ":" << receivedData.toHex();
-                }*/
+                }
             }
         }
+        logFile.close();
+    }else {
+        qDebug () << "Failed to open log file.";
     }
+}
 
-    //开挡板
-    void Widget::openBaffle()
-    {
+//开挡板
+void Widget::openBaffle()
+{
+    QByteArray command;
+    command = generateCommand(0x01, 0x01, 0x00);
+    for(QSerialPort* serialPort:serialPorts){
+        if(serialPort->isOpen()){
+            serialPort->write(command);
+            qDebug() <<"The bezel opend successfully";
+        }
+    }
+}
+
+//关挡板
+void Widget::closeBaffle()
+{
+    for(QSerialPort* serialPort:serialPorts){
         QByteArray command;
-        command = generateCommand(0x01, 0x01, 0x00);
-        for(QSerialPort* serialPort:serialPorts){
-            if(serialPort->isOpen()){
-                serialPort->write(command);
-                qDebug() <<"The bezel opend successfully";
-            }
+        command = generateCommand(0x02, 0x01, 0x00);;
+        if(serialPort->isOpen()){
+            serialPort->write(command);
+            qDebug() <<"The bezel closes successfully";
         }
     }
+}
 
-    //关挡板
-    void Widget::closeBaffle()
-    {
-        for(QSerialPort* serialPort:serialPorts){
-            QByteArray command;
-            command = generateCommand(0x02, 0x01, 0x00);;
-            if(serialPort->isOpen()){
-                serialPort->write(command);
-                qDebug() <<"The bezel closes successfully";
-            }
-        }
-    }
-
-    void Widget::onCaptureScreenButtonClicked()
-    {
-        //全屏截取
-        /*QScreen *screen = QGuiApplication::primaryScreen();
+void Widget::onCaptureScreenButtonClicked()
+{
+    //全屏截取
+    /*QScreen *screen = QGuiApplication::primaryScreen();
         if(!screen){
             QMessageBox::warning(this , u8"截屏失败" , u8"无法获取屏幕信息");
             return;
@@ -689,162 +721,162 @@ void Widget::parseReceivedData(const QByteArray &data, QSerialPort *serialPort, 
         QMessageBox::warning(this, u8"截屏失败", u8"无法保存截屏文件");
     }*/
 
-        //窗口截取
-        QPixmap pixmap = this->grab();
-        QString fileName =  QDateTime::currentDateTime().toString(u8"yy年MM月dd日HH:mm") + u8"挡板老化实验（台）"  +".png";
-        QString filePath = QFileDialog::getSaveFileName(this , u8"保存截图" , fileName , "PNG Images (*.png);;JPEG Images (*.jpg *.jpeg)");
-        if(pixmap.save(filePath)){
-            QMessageBox::information(this , u8"截屏成功" ,  u8"截图保存至" + filePath);
-        }else{
-            QMessageBox::warning(this , u8"截屏失败" , u8"无法保留截屏文件");
+    //窗口截取
+    QPixmap pixmap = this->grab();
+    QString fileName =  QDateTime::currentDateTime().toString(u8"yy年MM月dd日HH:mm") + u8"挡板老化实验（台）"  +".png";
+    QString filePath = QFileDialog::getSaveFileName(this , u8"保存截图" , fileName , "PNG Images (*.png);;JPEG Images (*.jpg *.jpeg)");
+    if(pixmap.save(filePath)){
+        QMessageBox::information(this , u8"截屏成功" ,  u8"截图保存至" + filePath);
+    }else{
+        QMessageBox::warning(this , u8"截屏失败" , u8"无法保留截屏文件");
+    }
+}
+
+// 更新表格行数的函数
+void Widget::updateTableRows(int rows)
+{
+    // 保存原有数据
+    QList<QList<QWidget*>> cellWidgets;
+    for (int i = 0; i < serialPortTable->rowCount(); ++i) {
+        QList<QWidget*> rowWidgets;
+        for (int j = 0; j < serialPortTable->columnCount(); ++j) {
+            rowWidgets.append(serialPortTable->cellWidget(i, j));
         }
+        cellWidgets.append(rowWidgets);
     }
 
-    // 更新表格行数的函数
-    void Widget::updateTableRows(int rows)
-    {
-        // 保存原有数据
-        QList<QList<QWidget*>> cellWidgets;
-        for (int i = 0; i < serialPortTable->rowCount(); ++i) {
-            QList<QWidget*> rowWidgets;
-            for (int j = 0; j < serialPortTable->columnCount(); ++j) {
-                rowWidgets.append(serialPortTable->cellWidget(i, j));
-            }
-            cellWidgets.append(rowWidgets);
-        }
+    // 重新设置表格行数
+    serialPortTable->setRowCount(rows);
 
-        // 重新设置表格行数
-        serialPortTable->setRowCount(rows);
-
-        // 恢复原有数据
-        for (int i = 0; i < qMin(rows, cellWidgets.size()); ++i) {
-            for (int j = 0; j < serialPortTable->columnCount(); ++j) {
-                if (i < cellWidgets.size() && j < cellWidgets[i].size())
-                {
-                    serialPortTable->setCellWidget(i, j, cellWidgets[i][j]);
-                }
-            }
-        }
-
-        // 如果新的行数大于原有行数，需要补充新的控件
-        if (rows > cellWidgets.size())
-        {
-            QList<QSerialPortInfo> serialPortInfos = QSerialPortInfo::availablePorts();
-            for (int i = cellWidgets.size(); i < rows; ++i) {
-                setupTableWidgetRow(i, serialPortInfos);
-            }
-        }
-
-        // 设置第8 - 11列不可编辑
-        for (int row = 0; row < serialPortTable->rowCount(); ++row) {
-            setColumnsNonEditable(row);
-        }
-
-        setWindowSize();
-    }
-
-    //初始化表格
-    void Widget::setupTableWidgetRow(int row, const QList<QSerialPortInfo>& serialPortInfos)
-    {
-        QCheckBox *checkBox = new QCheckBox(this);
-        serialPortTable->setCellWidget(row, 0, checkBox);
-
-        QComboBox *comboBox = new QComboBox(this);
-        for (const auto& info : serialPortInfos) {
-            comboBox->addItem(info.portName());
-        }
-
-        // 获取表格的列宽度并设置下拉框的宽度
-        int columnWidth = serialPortTable->columnWidth(1);
-        comboBox->setFixedWidth(columnWidth);
-
-        // 将串口选择的 QComboBox 设置到表格的第 1 列
-        serialPortTable->setCellWidget(row, 1, comboBox);
-
-        // 波特率
-        QComboBox *baudRateComboBox = new QComboBox(this);
-        baudRateComboBox->addItem(u8"9600");
-        baudRateComboBox->addItem(u8"115200");
-        baudRateComboBox->setEditable(true);
-        baudRateComboBox->setValidator(baudRateValidator);
-        serialPortTable->setCellWidget(row, 2, baudRateComboBox);
-
-        // 数据位
-        QComboBox *dataBitsComboBox = new QComboBox(this);
-        dataBitsComboBox->addItem(u8"8");
-        dataBitsComboBox->setEditable(true);
-        dataBitsComboBox->setValidator(dataBitsValidator);
-        serialPortTable->setCellWidget(row, 3, dataBitsComboBox);
-
-        // 停止位
-        QComboBox *stopBitsComboBox = new QComboBox(this);
-        stopBitsComboBox->addItem(u8"1");
-        stopBitsComboBox->setEditable(true);
-        stopBitsComboBox->setValidator(stopBitsValidator);
-        serialPortTable->setCellWidget(row, 4, stopBitsComboBox);
-
-        // 奇偶校验
-        QComboBox *parityComboBox = new QComboBox(this);
-        parityComboBox->addItem(u8"None");
-        parityComboBox->addItem(u8"Odd");
-        parityComboBox->addItem(u8"Even");
-        parityComboBox->setEditable(true);
-        parityComboBox->setValidator(parityValidator);
-        serialPortTable->setCellWidget(row, 5, parityComboBox);
-
-        //灯亮度
-        QSpinBox *lightBrightnessSpinBox = new QSpinBox(this);
-        lightBrightnessSpinBox->setRange(0, 255); // 设置取值范围，例如 0 到 255，否则只能达到99
-        lightBrightnessSpinBox->setValue(199);
-        serialPortTable->setCellWidget(row, 6, lightBrightnessSpinBox);
-
-        // 添加单选按钮组 “有、无” 到第 11 列
-        QButtonGroup *frictionGroup = new QButtonGroup(this);
-        QRadioButton *yesRadio = new QRadioButton(u8"有", this);
-        QRadioButton *noRadio = new QRadioButton(u8"无", this);
-        frictionGroup->addButton(yesRadio);
-        frictionGroup->addButton(noRadio);
-        noRadio->setChecked(true); // 默认选中 “无”
-        QHBoxLayout *frictionLayout = new QHBoxLayout();
-        frictionLayout->addWidget(yesRadio);
-        frictionLayout->addWidget(noRadio);
-        QWidget *frictionWidget = new QWidget();
-        frictionWidget->setLayout(frictionLayout);
-        serialPortTable->setCellWidget(row, 11, frictionWidget);
-
-        // 添加单选按钮组 “正常、异常” 到第 12 列
-        QButtonGroup *angleGroup = new QButtonGroup(this);
-        QRadioButton *normalRadio = new QRadioButton(u8"正常", this);
-        QRadioButton *abnormalRadio = new QRadioButton(u8"异常", this);
-        angleGroup->addButton(normalRadio);
-        angleGroup->addButton(abnormalRadio);
-        normalRadio->setChecked(true); // 默认选中 “正常”
-        QHBoxLayout *angleLayout = new QHBoxLayout();
-        angleLayout->addWidget(normalRadio);
-        angleLayout->addWidget(abnormalRadio);
-        QWidget *angleWidget = new QWidget();
-        angleWidget->setLayout(angleLayout);
-        serialPortTable->setCellWidget(row, 12, angleWidget);
-
-        //8 - 11列的代码
-        for (int col = 7; col <= 10; ++col) {
-            QTableWidgetItem *item = new QTableWidgetItem(QString::number(0));
-            serialPortTable->setItem(row, col, item);
-            item->setTextAlignment(Qt::AlignHCenter | Qt::AlignVCenter);
-            //        item->setFlags(item->flags() & ~Qt::ItemIsEditable);
-        }
-    }
-
-    //设置表格不可手动编辑
-    void Widget::setColumnsNonEditable(int row)
-    {
-        for (int col = 7; col <= 10; ++col) {
-            QTableWidgetItem *item = serialPortTable->item(row, col);
-            if (!item)
+    // 恢复原有数据
+    for (int i = 0; i < qMin(rows, cellWidgets.size()); ++i) {
+        for (int j = 0; j < serialPortTable->columnCount(); ++j) {
+            if (i < cellWidgets.size() && j < cellWidgets[i].size())
             {
-                item = new QTableWidgetItem();
-                serialPortTable->setItem(row, col, item);
+                serialPortTable->setCellWidget(i, j, cellWidgets[i][j]);
             }
-            item->setFlags(item->flags() & ~Qt::ItemIsEditable);
         }
     }
+
+    // 如果新的行数大于原有行数，需要补充新的控件
+    if (rows > cellWidgets.size())
+    {
+        QList<QSerialPortInfo> serialPortInfos = QSerialPortInfo::availablePorts();
+        for (int i = cellWidgets.size(); i < rows; ++i) {
+            setupTableWidgetRow(i, serialPortInfos);
+        }
+    }
+
+    // 设置第8 - 11列不可编辑
+    for (int row = 0; row < serialPortTable->rowCount(); ++row) {
+        setColumnsNonEditable(row);
+    }
+
+    setWindowSize();
+}
+
+//初始化表格
+void Widget::setupTableWidgetRow(int row, const QList<QSerialPortInfo>& serialPortInfos)
+{
+    QCheckBox *checkBox = new QCheckBox(this);
+    serialPortTable->setCellWidget(row, 0, checkBox);
+
+    QComboBox *comboBox = new QComboBox(this);
+    for (const auto& info : serialPortInfos) {
+        comboBox->addItem(info.portName());
+    }
+
+    // 获取表格的列宽度并设置下拉框的宽度
+    int columnWidth = serialPortTable->columnWidth(1);
+    comboBox->setFixedWidth(columnWidth);
+
+    // 将串口选择的 QComboBox 设置到表格的第 1 列
+    serialPortTable->setCellWidget(row, 1, comboBox);
+
+    // 波特率
+    QComboBox *baudRateComboBox = new QComboBox(this);
+    baudRateComboBox->addItem(u8"9600");
+    baudRateComboBox->addItem(u8"115200");
+    baudRateComboBox->setEditable(true);
+    baudRateComboBox->setValidator(baudRateValidator);
+    serialPortTable->setCellWidget(row, 2, baudRateComboBox);
+
+    // 数据位
+    QComboBox *dataBitsComboBox = new QComboBox(this);
+    dataBitsComboBox->addItem(u8"8");
+    dataBitsComboBox->setEditable(true);
+    dataBitsComboBox->setValidator(dataBitsValidator);
+    serialPortTable->setCellWidget(row, 3, dataBitsComboBox);
+
+    // 停止位
+    QComboBox *stopBitsComboBox = new QComboBox(this);
+    stopBitsComboBox->addItem(u8"1");
+    stopBitsComboBox->setEditable(true);
+    stopBitsComboBox->setValidator(stopBitsValidator);
+    serialPortTable->setCellWidget(row, 4, stopBitsComboBox);
+
+    // 奇偶校验
+    QComboBox *parityComboBox = new QComboBox(this);
+    parityComboBox->addItem(u8"None");
+    parityComboBox->addItem(u8"Odd");
+    parityComboBox->addItem(u8"Even");
+    parityComboBox->setEditable(true);
+    parityComboBox->setValidator(parityValidator);
+    serialPortTable->setCellWidget(row, 5, parityComboBox);
+
+    //灯亮度
+    QSpinBox *lightBrightnessSpinBox = new QSpinBox(this);
+    lightBrightnessSpinBox->setRange(0, 255); // 设置取值范围，例如 0 到 255，否则只能达到99
+    lightBrightnessSpinBox->setValue(199);
+    serialPortTable->setCellWidget(row, 6, lightBrightnessSpinBox);
+
+    // 添加单选按钮组 “有、无” 到第 11 列
+    QButtonGroup *frictionGroup = new QButtonGroup(this);
+    QRadioButton *yesRadio = new QRadioButton(u8"有", this);
+    QRadioButton *noRadio = new QRadioButton(u8"无", this);
+    frictionGroup->addButton(yesRadio);
+    frictionGroup->addButton(noRadio);
+    noRadio->setChecked(true); // 默认选中 “无”
+    QHBoxLayout *frictionLayout = new QHBoxLayout();
+    frictionLayout->addWidget(yesRadio);
+    frictionLayout->addWidget(noRadio);
+    QWidget *frictionWidget = new QWidget();
+    frictionWidget->setLayout(frictionLayout);
+    serialPortTable->setCellWidget(row, 11, frictionWidget);
+
+    // 添加单选按钮组 “正常、异常” 到第 12 列
+    QButtonGroup *angleGroup = new QButtonGroup(this);
+    QRadioButton *normalRadio = new QRadioButton(u8"正常", this);
+    QRadioButton *abnormalRadio = new QRadioButton(u8"异常", this);
+    angleGroup->addButton(normalRadio);
+    angleGroup->addButton(abnormalRadio);
+    normalRadio->setChecked(true); // 默认选中 “正常”
+    QHBoxLayout *angleLayout = new QHBoxLayout();
+    angleLayout->addWidget(normalRadio);
+    angleLayout->addWidget(abnormalRadio);
+    QWidget *angleWidget = new QWidget();
+    angleWidget->setLayout(angleLayout);
+    serialPortTable->setCellWidget(row, 12, angleWidget);
+
+    //8 - 11列的代码
+    for (int col = 7; col <= 10; ++col) {
+        QTableWidgetItem *item = new QTableWidgetItem(QString::number(0));
+        serialPortTable->setItem(row, col, item);
+        item->setTextAlignment(Qt::AlignHCenter | Qt::AlignVCenter);
+        //        item->setFlags(item->flags() & ~Qt::ItemIsEditable);
+    }
+}
+
+//设置表格不可手动编辑
+void Widget::setColumnsNonEditable(int row)
+{
+    for (int col = 7; col <= 10; ++col) {
+        QTableWidgetItem *item = serialPortTable->item(row, col);
+        if (!item)
+        {
+            item = new QTableWidgetItem();
+            serialPortTable->setItem(row, col, item);
+        }
+        item->setFlags(item->flags() & ~Qt::ItemIsEditable);
+    }
+}

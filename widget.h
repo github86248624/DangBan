@@ -26,6 +26,7 @@
 #include <QThread>
 #include <QMap>
 #include <QFile>
+#include <QTextStream>
 #include <QDateTime>
 #include <QIODevice>
 #include <QObject>
@@ -33,6 +34,7 @@
 #include <QPixmap>
 #include <QFileDialog>
 #include <QGuiApplication>
+#include <QDateTime>
 
 class Widget : public QWidget
 {
