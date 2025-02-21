@@ -58,6 +58,7 @@ private slots:
     void openBaffle();
     void closeBaffle();
     void onCaptureScreenButtonClicked();
+    void onChangeLogFileOathClicked();
 
 private:
     void updateTableRows(int rows);
@@ -122,6 +123,8 @@ private:
 
     int upperLimit;
     int lowerLimit;
+
+    QString logFilePath;
 };
 
 #endif // WIDGET_H

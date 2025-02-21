@@ -37,6 +37,15 @@ Widget::Widget(QWidget *parent)
     setcoLumnWidth();
 
     setWindowSize();
+
+    logFilePath = QCoreApplication::applicationDirPath() + "serialPortLog.txt";
+    QFile logFile(logFilePath);
+    if(!logFile.exists()){
+        if (logFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            // 文件创建成功
+            logFile.close();
+        }
+    }
 }
 
 Widget::~Widget()
@@ -72,6 +81,9 @@ void Widget::createFirstRowLayout(QVBoxLayout *mainLayout) {
 
     connect(rowCountSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), this, &Widget::onRowCountChanged);
 
+    QPushButton *changeLogFilePath  = new QPushButton(u8"改变日志文件位置",this);
+    firstRowLayout->addWidget(changeLogFilePath );
+    connect(changeLogFilePath ,&QPushButton::clicked,this,&Widget::onChangeLogFileOathClicked);
 
     QPushButton *captureScreenButton  = new QPushButton(u8"截取当前窗口",this);
     firstRowLayout->addWidget(captureScreenButton );
@@ -370,7 +382,7 @@ void Widget::setWindowSize()
 //发送灯亮度命令
 void Widget::sendLightBrightnessCommands()
 {
-    QFile logFile("serialPortLog.txt");
+    QFile logFile(logFilePath);
     if (logFile.open(QIODevice::Append | QIODevice::Text)){
         QTextStream out(&logFile);
         for(QList<QSerialPort*>::iterator it = serialPorts.begin(); it != serialPorts.end(); ++it){
@@ -604,7 +616,7 @@ void Widget::onTimerTimeout()
         commandIndex = 0;
     }
 
-    QFile logFile("serialPortLog.txt");
+    QFile logFile(logFilePath);
     if (logFile.open(QIODevice::Append | QIODevice::Text)) {
         QTextStream out(&logFile);
 
@@ -632,7 +644,7 @@ void Widget::onTimerTimeout()
 //读取串口信息
 void Widget::readSerialPortData()
 {
-    QFile logFile("serialPortLog.txt");
+    QFile logFile(logFilePath);
     if(logFile.open(QIODevice::Append | QIODevice::Text)){
         QTextStream out(&logFile);
 
@@ -730,10 +742,19 @@ void Widget::onCaptureScreenButtonClicked()
     }else{
         QMessageBox::warning(this , u8"截屏失败" , u8"无法保留截屏文件");
     }
-    int result =QMessageBox::question(nullptr , u8"是否打开日志文件保存位置" ,  QString(u8"是否打开目录：%1？").arg(QCoreApplication::applicationDirPath()),
-                          QMessageBox::Yes | QMessageBox::No);
+    int result =QMessageBox::question(nullptr , u8"是否打开日志文件保存位置" ,  QString(u8"是否打开目录：%1？").arg(logFilePath),
+                                      QMessageBox::Yes | QMessageBox::No);
     if(result == QMessageBox::Yes){
-        QDesktopServices::openUrl(QUrl::fromLocalFile(QCoreApplication::applicationDirPath())) ;
+        QDesktopServices::openUrl(QUrl::fromLocalFile(logFilePath)) ;
+    }
+}
+
+void Widget::onChangeLogFileOathClicked()
+{
+    QString newFilePath = QFileDialog::getSaveFileName(this ,u8"选择日志文件位置", logFilePath,  u8"日志文件 (*.txt)");
+    if (!newFilePath.isEmpty()) {
+        logFilePath = newFilePath;
+        QMessageBox::information(this, u8"日志文件位置已更改", u8"新的日志文件位置：" + logFilePath);
     }
 }
 
